@@ -1,22 +1,27 @@
-"""
-Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of version 2 of the GNU General Public License as published
-by the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""
-
-from distutils.core import setup
+from setuptools import setup, Extension
 from Cython.Build import cythonize
+import numpy as np
+
+extensions = [
+    Extension(
+        name="calc_dpred",
+        sources=["calc_dpred.pyx"],
+        include_dirs=[np.get_include()],
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")],
+        extra_compile_args=["-O3"],  
+        language="c",  
+    )
+]
 
 setup(
-    ext_modules=cythonize("calc_dpred.pyx")
+    name="calc_dpred",
+    ext_modules=cythonize(
+        extensions,
+        language_level=3,  
+        compiler_directives={
+            "boundscheck": False,
+            "wraparound": False,
+            "cdivision": True
+        }
+    ),
 )

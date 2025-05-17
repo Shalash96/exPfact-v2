@@ -1,69 +1,105 @@
-"""
-Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of version 2 of the GNU General Public License as published
-by the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""
+# cython: boundscheck=False, wraparound=False, cdivision=True
 
 from math import exp
 import numpy as np
+cimport numpy as cnp
 
-def get_residue_rates(double [:] kint, double[:] P):
+# Ensure numpy memory views are declared properly
+ctypedef cnp.double_t DTYPE_t
+ctypedef cnp.int64_t ITYPE_t
 
-    cdef int N = kint.shape[0]
-    cdef rates = np.zeros(N)
+
+def get_residue_rates(cnp.ndarray[DTYPE_t, ndim=1] kint,
+                      cnp.ndarray[DTYPE_t, ndim=1] lnP) -> cnp.ndarray:
+    """
+    Calculate exchange rate per residue as kint / exp(P)
+    - If kint[i] == -1, that residue is skipped (e.g., Prolines)
+
+    Parameters
+    ----------
+    kint : array of intrinsic exchange rates
+    lnP  : array of log protection factors
+
+    Returns
+    -------
+    rates : array of actual exchange rates per residue
+    """
+    cdef int n_residues = kint.shape[0]
+    cdef cnp.ndarray[DTYPE_t, ndim=1] rates = np.zeros(n_residues)
+
     cdef int i
-
-    for i in range(N):
+    for i in range(n_residues):
         if kint[i] == -1:
-            rates[i] += -1
+            rates[i] = -1.0
         else:
-            rates[i] += kint[i] / exp(P[i])
+            rates[i] = kint[i] / exp(lnP[i])
 
     return rates
 
 
+def compute_peptide_uptake(cnp.ndarray[DTYPE_t, ndim=1] residue_rates,
+                           cnp.ndarray[ITYPE_t, ndim=2] assignments,
+                           cnp.ndarray[DTYPE_t, ndim=1] time_points) -> cnp.ndarray:
+    """
+    Calculate deuterium uptake for each peptide at each time point.
 
-def peptide_uptake(double [:] rate_res, long [:, :] assignments, double [:] time_points):
+    Parameters
+    ----------
+    residue_rates : array of per-residue exchange rates
+    assignments    : [n_fragments x 3] array with [index, start, end] per peptide
+    time_points    : exposure times in hours (or seconds)
 
-    cdef int nfrag = assignments.shape[0]
-    cdef int ntime = time_points.shape[0]
-    cdef double [:, :] peptide_dpred = np.zeros((nfrag,ntime))
-    cdef double [:] namide = np.zeros(nfrag)
-    cdef int i
-    cdef int j
+    Returns
+    -------
+    dpred : 2D array of predicted uptake [n_peptides x n_timepoints]
+    """
+    cdef int n_peptides = assignments.shape[0]
+    cdef int n_times = time_points.shape[0]
 
-    for i in range(nfrag):
-        for j in range(assignments[i][1],assignments[i][2]):
-            if  (rate_res[j]>=0):
-                namide[i]=namide[i]+1
+    cdef cnp.ndarray[DTYPE_t, ndim=2] dpred = np.zeros((n_peptides, n_times))
+    cdef cnp.ndarray[DTYPE_t, ndim=1] n_amides = np.zeros(n_peptides)
 
-    for i in range(nfrag):
-        for k in range(ntime):
-            for j in range(assignments[i][1],assignments[i][2]):
-                if (rate_res[j]>=0):
-                    peptide_dpred[i][k]=peptide_dpred[i][k]+exp(-rate_res[j]*time_points[k])
-            peptide_dpred[i][k]=(namide[i]-peptide_dpred[i][k])/namide[i]
+    cdef int i, j, k, start, end
 
-    return peptide_dpred
+    # Count exchangeable amides for each peptide
+    for i in range(n_peptides):
+        start = assignments[i, 1]
+        end = assignments[i, 2]
+        for j in range(start, end):
+            if residue_rates[j] >= 0:
+                n_amides[i] += 1
+
+    # Compute uptake for each peptide/time
+    for i in range(n_peptides):
+        start = assignments[i, 1]
+        end = assignments[i, 2]
+        for k in range(n_times):
+            for j in range(start, end):
+                if residue_rates[j] >= 0:
+                    dpred[i, k] += exp(-residue_rates[j] * time_points[k])
+            dpred[i, k] = (n_amides[i] - dpred[i, k]) / n_amides[i]
+
+    return dpred
 
 
-def calculate_dpred(double [:] P,
-                    double [:] time_points,
-                    double [:] kint,
-                    long [:, :] assignments):
+def calculate_dpred(cnp.ndarray[DTYPE_t, ndim=1] lnP,
+                    cnp.ndarray[DTYPE_t, ndim=1] time_points,
+                    cnp.ndarray[DTYPE_t, ndim=1] kint,
+                    cnp.ndarray[ITYPE_t, ndim=2] assignments) -> cnp.ndarray:
+    """
+    Main function to compute predicted uptake matrix.
 
-    rate_res = get_residue_rates(kint, P)
+    Parameters
+    ----------
+    lnP         : natural log protection factors
+    time_points : array of exposure times
+    kint        : intrinsic exchange rates
+    assignments : peptide fragment assignment matrix
 
-    peptide_dpred = peptide_uptake(rate_res, assignments, time_points)
-
-    return peptide_dpred
+    Returns
+    -------
+    dpred : predicted D-uptake per peptide per time point
+    """
+    cdef cnp.ndarray[DTYPE_t, ndim=1] rates = get_residue_rates(kint, lnP)
+    cdef cnp.ndarray[DTYPE_t, ndim=2] dpred = compute_peptide_uptake(rates, assignments, time_points)
+    return dpred
