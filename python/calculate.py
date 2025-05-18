@@ -5,8 +5,11 @@ HDX-MS P-factor Optimization Utilities
 Provides tools to compute root mean square error, evaluate cost function,
 run random search and perform optimization of protection factors (lnP).
 
-Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
-Licensed under GPL-2.0
+Author: 
+    - Original author:
+        - Emanuele Paci, Simon P. Skinner, Michele Stofella
+    - Updated by:
+        Mahmoud Shalash
 """
 
 import numpy as np

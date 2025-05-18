@@ -1,28 +1,66 @@
 """
-Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
+Clean .pfact files by removing lines with IDs listed in 'none.dat'.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of version 2 of the GNU General Public License as published
-by the Free Software Foundation.
+For each .pfact file in the current directory:
+- Remove any lines where the first column matches an entry in 'none.dat'
+- Save the cleaned file with a .cpfact extension
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+Author: 
+    - Original author:
+        - Emanuele Paci, Simon P. Skinner, Michele Stofella
+    - Updated by:
+        Mahmoud Shalash
 """
 
 import os
+from pathlib import Path
 
-list1 = [x.strip() for x in open('none.dat', 'r').readlines()]
 
-for f in os.listdir():
-    if f.endswith('.pfact'):
-        lines = open(f, 'r').readlines()
-        fout = open(f.split('.p')[0]+'.cpfact', 'w')
-        for line in lines:
-            if not line.strip().split()[0] in list1:
-                fout.write(line)
-        fout.close()
+def load_exclusion_list(filepath: str = "none.dat") -> set:
+    """
+    Load excluded residue IDs from a file.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the file containing residue IDs to exclude.
+
+    Returns
+    -------
+    Set[str]
+        A set of string identifiers to be excluded.
+    """
+    try:
+        with open(filepath, "r") as file:
+            return {line.strip() for line in file if line.strip()}
+    except FileNotFoundError:
+        print(f"Error: '{filepath}' not found.")
+        return set()
+
+
+def clean_pfact_files(exclude_ids: set, directory: str = ".") -> None:
+    """
+    Clean .pfact files in the given directory by removing excluded IDs.
+
+    Parameters
+    ----------
+    exclude_ids : set
+        Set of string residue IDs to exclude.
+    directory : str
+        Directory containing .pfact files.
+    """
+    for pfact_path in Path(directory).glob("*.pfact"):
+        output_path = pfact_path.with_suffix(".cpfact")
+
+        with pfact_path.open("r") as fin, output_path.open("w") as fout:
+            for line in fin:
+                fields = line.strip().split()
+                if fields and fields[0] not in exclude_ids:
+                    fout.write(line)
+
+        print(f"Cleaned: {pfact_path.name} → {output_path.name}")
+
+
+if __name__ == "__main__":
+    exclusion_set = load_exclusion_list("none.dat")
+    clean_pfact_files(exclusion_set)
