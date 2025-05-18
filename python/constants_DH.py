@@ -1,21 +1,23 @@
 """
-Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
+Physical and empirical constants for modeling HDX intrinsic rates
+in protonated conditions (H₂O), based on experimental work from Bai et al. (1993).
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of version 2 of the GNU General Public License as published
-by the Free Software Foundation.
+This module defines:
+- Amino acid-dependent intrinsic rate coefficients (`para`)
+- Terminal modifications (N-term and C-term)
+- Exchange rate constants (ka, kb, kw)
+- Activation energies for temperature scaling
+- pKa shifts for side chains (His, Asp, Glu)
+- Functions to compute D⁺/OD⁻ concentration and temperature correction factors
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+Refactored from original code by E. Paci group (GPL-2.0).
 """
 
 from math import exp, log10
 
+# === Intrinsic rate modifiers per residue (unitless scaling coefficients)
+# Format: [N_acid, S_acid, N_base, S_base]
+# Reference: Bai et al., 1993
 para = {
     "A": [0.00,   0.00,  0.00,  0.00],
     "C": [-0.54, -0.46,  0.62,  0.55],
@@ -26,7 +28,7 @@ para = {
     "L": [-0.57, -0.13, -0.58, -0.21],
     "M": [-0.64, -0.28, -0.01,  0.11],
     "N": [-0.58, -0.13,  0.49,  0.32],
-    "P": [99999, -0.19, 99999, -0.24],
+    "P": [99999, -0.19, 99999, -0.24],  # Prolines excluded from exchange
     "Q": [-0.47, -0.27,  0.06,  0.20],
     "R": [-0.59, -0.32,  0.08,  0.22],
     "S": [-0.44, -0.39,  0.37,  0.30],
@@ -36,58 +38,97 @@ para = {
     "Y": [-0.41, -0.37, -0.27,  0.05],
 }
 
-rho_Nterm_acid = -1.32
-rho_Nterm_base = 1.62
+# === Terminal correction factors
+rho_Nterm_acid = -1.32      # N-terminal acid term
+rho_Nterm_base = 1.62       # N-terminal base term
 
-lamb_Cterm_acid = 0.08
-lamb_Cterm_base = -1.80
+lamb_Cterm_acid = 0.08      # C-terminal acid term
+lamb_Cterm_base = -1.80     # C-terminal base term
 
-pKD = 14.17
-R = 1.987
+# === Physical constants
+pKD = 14.17                 # Water autoionization pKa in H₂O
+R = 1.987                   # Gas constant [cal/(mol·K)]
 
-ka = 10**(1.4) / 60
-kb = 10**(10.0) / 60
-kw = 10**(-1.6) / 60
+# === Rate constants [s⁻¹] — scaled from literature values
+ka = 10**(1.4) / 60         # Acid-catalyzed exchange rate
+kb = 10**(10.0) / 60        # Base-catalyzed exchange rate
+kw = 10**(-1.6) / 60        # Water-catalyzed exchange rate
 
-Ea = 14000
-Eb = 17000
-Ew = 19000
+# === Activation energies [cal/mol]
+Ea = 14000                 # Acid-catalyzed
+Eb = 17000                 # Base-catalyzed
+Ew = 19000                 # Water-catalyzed
 
+# === Functional forms ===
 
-def get_D(pH):
-    return 10**(-pH)
-
-
-def get_OD(pH):
-    return 10**(pH - pKD)
-
-
-def get_temperature_normalization(temperature):
-    return (1 / temperature - 1/293) / R
+def get_D(pH: float) -> float:
+    """Return [D⁺] concentration (mol/L) given pH."""
+    return 10 ** (-pH)
 
 
-def get_pK_his(temperature):
+def get_OD(pH: float) -> float:
+    """Return [OD⁻] concentration (mol/L) from pH and pK_D."""
+    return 10 ** (pH - pKD)
+
+
+def get_temperature_normalization(temperature: float) -> float:
+    """
+    Return Arrhenius normalization factor: (1/T - 1/Tref) / R.
+    
+    Parameters
+    ----------
+    temperature : float
+        Temperature in Kelvin. Reference T = 293 K.
+    """
+    return (1 / temperature - 1 / 293) / R
+
+
+def get_pK_his(temperature: float) -> float:
+    """
+    Temperature-dependent pKa for histidine side chain.
+    Reference pKa = 7.00 at 278 K, Ea = 7500 cal/mol.
+    """
     Ea_his = 7500
     return -log10(10**(-7.00) * exp(-Ea_his * (1 / temperature - 1 / 278) / R))
 
 
-def get_pK_asp(temperature):
+def get_pK_asp(temperature: float) -> float:
+    """
+    Temperature-dependent pKa for aspartic acid side chain.
+    Reference pKa = 3.87 at 278 K, Ea = 960 cal/mol.
+    """
     Ea_asp = 960
     return -log10(10**(-3.87) * exp(-Ea_asp * (1 / temperature - 1 / 278) / R))
 
 
-def get_pK_glu(temperature):
+def get_pK_glu(temperature: float) -> float:
+    """
+    Temperature-dependent pKa for glutamic acid side chain.
+    Reference pKa = 4.33 at 278 K, Ea = 1083 cal/mol.
+    """
     Ea_glu = 1083
     return -log10(10**(-4.33) * exp(-Ea_glu * (1 / temperature - 1 / 278) / R))
 
 
-def get_Fta(temperature):
+def get_Fta(temperature: float) -> float:
+    """
+    Return acid-catalyzed Arrhenius temperature scaling factor.
+    Based on Ea = 14 kcal/mol.
+    """
     return exp(-Ea * get_temperature_normalization(temperature))
 
 
-def get_Ftb(temperature):
+def get_Ftb(temperature: float) -> float:
+    """
+    Return base-catalyzed Arrhenius temperature scaling factor.
+    Based on Eb = 17 kcal/mol.
+    """
     return exp(-Eb * get_temperature_normalization(temperature))
 
 
-def get_Ftw(temperature):
+def get_Ftw(temperature: float) -> float:
+    """
+    Return water-catalyzed Arrhenius temperature scaling factor.
+    Based on Ew = 19 kcal/mol.
+    """
     return exp(-Ew * get_temperature_normalization(temperature))
