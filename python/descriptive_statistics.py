@@ -1,17 +1,12 @@
 """
-Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
+Descriptive statistics tool for protection factor fitting results in exPfact.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of version 2 of the GNU General Public License as published
-by the Free Software Foundation.
+This script:
+- Selects the top X% best-scoring solutions (based on .diff files)
+- Aggregates their ln(P) profiles
+- Computes average, median, min/max protection factors across all residues
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+Author: E. Paci group (GPL-2.0), Enhanced by Mahmoud Shalash
 """
 
 import os
@@ -19,78 +14,92 @@ import numpy as np
 import pandas as pd
 from read import read_pfact
 from logger import log
+from typing import List
+import argparse
 
+def select_top_solutions(out_file: str, top_percent: float) -> None:
+    """
+    Selects top scoring protection factor (.pfact) files based on average error in .diff files.
 
-def select_top_solutions(out_file, n):
-    files = os.listdir()
-    diff_files = []
-    diff_value = []
-    for file in files:
-        if '.diff' in file and out_file in file:
-            f = open(file, 'r')
-            diff = pd.read_csv(file, header=None, delim_whitespace=True)
-            diff_files.append(file)
-            diff_value.append(np.average(diff[1]))
-    sorted_files = pd.DataFrame(zip(diff_files, diff_value)).sort_values(1).reset_index(drop=True)
-    np.savetxt('diff.list', sorted_files.values, fmt='%s %5.10f')
-    log.info("Cost function of all solutions stored in file diff.list")
+    Parameters
+    ----------
+    out_file : str
+        Prefix of result files to consider (e.g., 'out' for out1.diff, out2.diff, etc.)
+    top_percent : float
+        Percentage (0-100) of best solutions to keep
+    """
+    diff_entries = []
 
-    p = []
-    for i in range(int(n)):
-        file = sorted_files[0][i]
-        p.append(list(read_pfact(file.replace('.diff', '.pfact'))))
+    for file in os.listdir():
+        if file.endswith(".diff") and out_file in file:
+            try:
+                diff_data = pd.read_csv(file, header=None, sep="\\s+")
+                avg_diff = np.mean(diff_data[1])
+                diff_entries.append((file, avg_diff))
+            except Exception as e:
+                log.warning(f"Skipping file {file} due to error: {e}")
 
-    with open("all.sp", "w+") as f:
-        for i in range(len(p)):
-            for j in range(len(p[i])):
-                if j == len(p[i])-1:
-                    f.write("%5.5f\n" % p[i][j])
-                else:
-                    f.write("%5.5f " % p[i][j])
-    log.info("Top %s solutions stored in all.sp" % str(sorted_files.shape[0]*n/100))
+    if not diff_entries:
+        log.error("No matching .diff files found.")
+        return
 
+    # Sort files by ascending average cost
+    sorted_entries = sorted(diff_entries, key=lambda x: x[1])
+    n_top = max(1, int(len(sorted_entries) * top_percent / 100))
 
-def run_descriptive():
-    allsp = pd.read_csv("all.sp", header=None, delim_whitespace=True)
+    with open("diff.list", "w") as f:
+        for file, val in sorted_entries:
+            f.write(f"{file} {val:.5f}\n")
+    log.info(f"Top {n_top} solutions selected from {len(sorted_entries)} total.")
 
-    with open('average.pfact', 'w+') as f:
+    # Collect protection factors from selected files
+    selected_pfactors: List[List[float]] = []
+    for file, _ in sorted_entries[:n_top]:
+        pfact_file = file.replace(".diff", ".pfact")
+        pfactors = read_pfact(pfact_file)
+        selected_pfactors.append(pfactors)
+
+    with open("all.sp", "w") as f:
+        for row in selected_pfactors:
+            f.write(" ".join(f"{val:.5f}" for val in row) + "\n")
+
+    log.info("Top solution protection factors written to all.sp")
+
+def run_descriptive() -> None:
+    """
+    Computes descriptive statistics (mean, std, median, min, max) across top solutions in all.sp
+    and saves the results to respective .pfact summary files.
+    """
+    allsp = pd.read_csv("all.sp", header=None, sep="\\s+") # \\s+ handles any whitespace. I used it instead of delim_whitespace=True because it will be deprecated in next versions of pandas
+
+    with open("average.pfact", "w") as f:
         for i in range(allsp.shape[1]):
-            round_mean = round(np.mean(allsp[i]), 5)
-            round_std = round(np.std(allsp[i]), 5)
-            f.write(str(i+1)+'\t'+str(round_mean)+'\t'+str(round_std)+'\n')
-    log.info("Average protection factors saved in average.pfact")
+            mean = np.mean(allsp[i])
+            std = np.std(allsp[i])
+            f.write(f"{i+1}\t{mean:.5f}\t{std:.5f}\n")
+    log.info("Average and std dev saved in average.pfact")
 
-    with open('median.pfact', 'w+') as f:
+    with open("median.pfact", "w") as f:
         for i in range(allsp.shape[1]):
-            round_median = round(np.median(allsp[i]), 5)
-            f.write(str(i+1)+'\t'+str(round_median)+'\n')
+            median = np.median(allsp[i])
+            f.write(f"{i+1}\t{median:.5f}\n")
     log.info("Median protection factors saved in median.pfact")
 
-    with open('minmax.pfact', 'w+') as f:
+    with open("minmax.pfact", "w") as f:
         for i in range(allsp.shape[1]):
-            round_min = round(np.min(allsp[i]), 5)
-            round_max = round(np.max(allsp[i]), 5)
-            f.write(str(i+1)+'\t'+str(round_min)+'\t'+str(round_max)+'\n')
-    log.info("Minimum and maximum protection factors saved in minmax.pfact")
+            min_val = np.min(allsp[i])
+            max_val = np.max(allsp[i])
+            f.write(f"{i+1}\t{min_val:.5f}\t{max_val:.5f}\n")
+    log.info("Min/max protection factors saved in minmax.pfact")
 
 
 if __name__ == '__main__':
-
-    import argparse
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--res")
-    parser.add_argument("--top")
+    parser = argparse.ArgumentParser(description="Select and analyze top protection factor solutions.")
+    parser.add_argument("--res", required=True, help="Prefix of result files to analyze (e.g., 'out')")
+    parser.add_argument("--top", type=float, default=50.0, help="Top %% of solutions to include [default: 50]")
 
     opts = parser.parse_args()
 
-    if opts.res:
-        out_file = opts.res
-    if opts.top:
-        n = float(opts.top)
-    else:
-        n = 50
-
     log.info("Running descriptive_statistics.py")
-    select_top_solutions(out_file, n)
+    select_top_solutions(opts.res, opts.top)
     run_descriptive()
