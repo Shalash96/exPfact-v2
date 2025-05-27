@@ -2,7 +2,7 @@
 Clustering of HDX-MS contiguous peptide regions using Mclust (via Rscript).
 
 - Reads peptide assignments from a file
-- Identifies contiguous regions with no peptide coverage
+- Identifies contiguous regions between gaps in coverage
 - Calls `multi.r` R script to cluster each region using Mclust
 
 Author: Code updated by Mahmoud Shalash based on original code by E. Paci group
@@ -10,13 +10,10 @@ Author: Code updated by Mahmoud Shalash based on original code by E. Paci group
 
 import argparse
 import subprocess
-from pathlib import Path
 import numpy as np
 from read import read_assignments
 from typing import List
 
-import numpy as np
-from typing import List
 
 def find_covered_regions_between_gaps(assignments: np.ndarray) -> List[str]:
     """
@@ -72,12 +69,12 @@ def find_covered_regions_between_gaps(assignments: np.ndarray) -> List[str]:
 
 def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r") -> None:
     """
-    Run Mclust clustering via Rscript for each uncovered region.
+    Run Mclust clustering via Rscript for each contiguous covered region.
 
     Parameters
     ----------
     regions : List[str]
-        List of residue ranges in format 'start-end'.
+        List of peptides ranges in format 'start-end'.
     r_script : str
         Path to the R clustering script.
     """
@@ -92,7 +89,7 @@ def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r") ->
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run Mclust clustering on uncovered HDX-MS regions.")
+    parser = argparse.ArgumentParser(description="Run Mclust clustering on contiguous regions between gaps.")
     parser.add_argument("--ass", required=True, help="Path to peptide assignment file (.list)")
     args = parser.parse_args()
 
