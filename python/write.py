@@ -1,92 +1,102 @@
 """
+Write Utility Functions for ExPfact Outputs
+-------------------------------------------
+
+Handles output of protection factors, predicted deuterium uptake,
+cost differences, and pooled replicates for HDX-MS data analysis.
+
 Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of version 2 of the GNU General Public License as published
-by the Free Software Foundation.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+Upgraded by Mahmoud Shalash
+Licensed under GPL-2.0
 """
 
 import numpy as np
+from typing import List
 
 
-def write_pfact(params, fout_name):
+def write_pfact(params: np.ndarray, fout_name: str) -> None:
     """
-    Writes Pfactors to output file.
-    :param params: array of pfactors
-    :param fout_name: output file name.
-    :return:
+    Write protection factor array to a .pfact file.
+
+    Parameters
+    ----------
+    params : np.ndarray
+        Array of ln(P) values.
+    fout_name : str
+        Output filename prefix (no extension).
     """
-    fout = open(fout_name + '.pfact', 'w')
-    for ii, x in enumerate(params):
-        fout.write("{} {}\n".format(ii + 1, x))
-    fout.close()
+    with open(fout_name + '.pfact', 'w') as f:
+        for i, value in enumerate(params):
+            f.write(f"{i + 1} {value}\n")
 
 
-def write_dpred(output_file, dpred, times, eps=0, suffix=".Dpred"):
+def write_dpred(
+    output_file: str,
+    dpred: np.ndarray,
+    times: List[float],
+    eps: float = 0.0,
+    suffix: str = ".Dpred"
+) -> None:
     """
-    Writes Dpred values to file.
-    :param output_file: output file name
-    :param dpred: array of Dpred values
-    :param times: array of time points.
-    :param suffix: suffix for output file.
-    :return:
+    Write predicted deuterium uptake to file.
+
+    Parameters
+    ----------
+    output_file : str
+        Output filename prefix.
+    dpred : np.ndarray
+        Predicted uptake matrix (peptides × timepoints).
+    times : List[float]
+        List of timepoints.
+    eps : float, optional
+        Gaussian noise std for simulation. Default is 0.
+    suffix : str, optional
+        File suffix. Default is '.Dpred'.
     """
-    output_array = np.insert(dpred, [0], times, axis=0)
+    output_array = np.insert(dpred, 0, times, axis=0)
     if eps > 0:
-        for i in range(1, len(output_array)):
-            for j in range(len(output_array[i])):
-                output_array[i][j] += np.random.normal(scale=eps)
-                if output_array[i][j] > 1:
-                    output_array[i][j] = 1
-                elif output_array[i][j] < 0:
-                    output_array[i][j] = 0
+        noise = np.random.normal(scale=eps, size=output_array[1:].shape)
+        output_array[1:] += noise
+        np.clip(output_array[1:], 0, 1, out=output_array[1:])  # Ensure values ∈ [0, 1]
     np.savetxt(output_file + suffix, output_array.T, fmt='%.7g')
 
 
-def write_diff(outfile, dpred, dexp):
+def write_diff(outfile: str, dpred: np.ndarray, dexp: np.ndarray) -> None:
     """
-    Writes out root normalised differences between dpred and dexp
-    :param outfile: output file name
-    :param dpred: array of dpred values
-    :param dexp: array of dexp values
-    :return:
+    Write per-peptide RMS difference between prediction and experiment.
+
+    Parameters
+    ----------
+    outfile : str
+        Output file prefix.
+    dpred : np.ndarray
+        Predicted uptake array.
+    dexp : np.ndarray
+        Experimental uptake array.
     """
-    fout = open(outfile + '.diff', 'w')
-    costs = [1/len(pred)*np.sum((pred-exp)**2) for pred, exp in zip(dpred, dexp)]
-    for ii, cost in enumerate(costs):
-        fout.write('{} {:e}\n'.format(ii + 1, cost))
-    fout.close()
+    with open(outfile + '.diff', 'w') as f:
+        for i, (pred, exp) in enumerate(zip(dpred, dexp)):
+            cost = np.mean((pred - exp) ** 2)
+            f.write(f"{i + 1} {cost:.8e}\n")
 
 
-def write_combined_replicates(files, out):
+def write_combined_replicates(files: List[str], out: str) -> None:
     """
-    Writes out .Dpred file where deuteration is mean of multiple replicates
-    :param files: list of .Dpred files to be combined
-    :param out:   name of output .Dpred file
-    :return:
+    Combine multiple .Dpred replicate files by averaging.
+
+    Parameters
+    ----------
+    files : List[str]
+        List of .Dpred filenames.
+    out : str
+        Output filename prefix.
     """
-    list_arrays = []
-    weights = []
-    for file in files:
-        list_arrays.append(np.loadtxt(file))
-        weights.append(np.loadtxt(file).T[1:])
-    comb = np.mean(np.array(list_arrays), axis=0)
+    dpred_arrays = [np.loadtxt(f) for f in files]
+    comb = np.mean(dpred_arrays, axis=0)
 
-    all_w = []
-    for i in range(len(weights[0])):
-        for j in range(len(weights[0][i])):
-            all_w.append([weights[k][i][j] for k in range(len(weights))])
-    stds = [np.std(all_w[i]) for i in range(len(all_w))]
-    pstd = np.sqrt(np.sum([std**2 for std in stds])/len(stds))
+    # Calculate pooled standard deviation across replicates
+    all_weights = np.array([arr[:, 1:] for arr in dpred_arrays])  # shape: (replicates, peptides, timepoints)
+    pooled_std = np.sqrt(np.mean(np.var(all_weights, axis=0)))
+    print(f"Pooled std: {pooled_std:.5f}")
 
-    print("  Pooled std: "+str(round(pstd, 5)))
-
-    np.savetxt(out+'.Dpred', comb, fmt='%.7g')
+    np.savetxt(out + '.Dpred', comb, fmt='%.7g')
