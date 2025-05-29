@@ -6,7 +6,7 @@ This script:
 - Aggregates their ln(P) profiles
 - Computes average, median, min/max protection factors across all residues
 
-Author: E. Paci group (GPL-2.0), Enhanced by Mahmoud Shalash
+Author: E. Paci group (GPL-2.0), re-written by Mahmoud Shalash
 """
 
 import os
