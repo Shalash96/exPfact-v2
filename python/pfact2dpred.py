@@ -1,137 +1,115 @@
 """
-Copyright (C) 2019-2020 Emanuele Paci, Simon P. Skinner, Michele Stofella
+Protection Factor to Deuterium Uptake Prediction
+------------------------------------------------
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of version 2 of the GNU General Public License as published
-by the Free Software Foundation.
+This script calculates the predicted deuterium uptake (Dpred) using protection factors (Pfactors)
+and intrinsic exchange rates (kint). Supports multiple replicates and noise injection.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-###############################################################################
-#
-#  This script fits a set of pfactors to a set of kint values
-#  from protein fragments.
-#
-#  Compulsory arguments:
-#
-#  --temp: specifies the temperature for kint calculation.
-#  --pH:   specifies the temperature for pH calculation.
-#  --pfact: specifies file pfactors
-#  --ass:  specifies file containing assignments of kints to dexp values.
-#  --times: list of time poinds at which D is calculated
-#           for each peptide in ass
-#  --seq: amino acid sequence file
-#
-#
-#  Optional arguments:
-#  --base:  specifies directory where calculation files live (default: pwd)
-#  --out:   specifies name of output file for protection factors
-#           (default: pfact.out)
-#
-###############################################################################
+Copyright (C) 2019-2020 Emanuele Paci group.
+Code upgraded by Mahmoud Shalash
+Licensed under GPL-2.0
 """
 
-from calc_dpred import calculate_dpred
 import os
 import argparse
+from typing import Dict, List, Optional
 
+from calc_dpred import calculate_dpred
 from kint import calculate_kint_for_sequence
-
-from read import read_assignments, \
-        read_pfact, \
-        read_seq,	 \
-        read_time_points
-
+from read import read_assignments, read_pfact, read_seq, read_time_points
 from write import write_dpred, write_combined_replicates
-
 from logger import log
 
 
-if __name__ == '__main__':
+def run_pfact2dpred(
+    base: str = ".",
+    ass_file: str = "",
+    pfact_file: str = "",
+    times_file: str = "",
+    temp: float = 298.15,
+    pH: float = 7.0,
+    seq_file: str = "",
+    out: Optional[str] = None,
+    nrep: int = 1,
+    eps: float = 0.0
+) -> None:
+    """
+    Run the protection factor to deuterium uptake prediction process.
+
+    Parameters
+    ----------
+    base : str
+        Base directory where files are located.
+    ass_file : str
+        Assignment file path.
+    pfact_file : str
+        Path to the protection factor file.
+    times_file : str
+        Path to file with labeling times.
+    temp : float
+        Temperature in Kelvin.
+    pH : float
+        pH of the solution.
+    seq_file : str
+        File with amino acid sequence.
+    out : str
+        Output prefix (without extension).
+    nrep : int
+        Number of replicates to generate.
+    eps : float
+        Standard deviation of Gaussian noise to add (0 disables).
+    """
     log.info("Running pfact2dpred")
-    parser = argparse.ArgumentParser()
 
-    parser.add_argument("--base")
-    parser.add_argument("--ass")
-    parser.add_argument("--pfact")
-    parser.add_argument("--times")
-    parser.add_argument("--temp")
-    parser.add_argument("--pH")
-    parser.add_argument("--seq")
-    parser.add_argument("--out")
+    # Read input files
+    pfact = read_pfact(pfact_file)
+    assignments = read_assignments(ass_file)
+    sequence = read_seq(seq_file)
+    times = read_time_points(times_file)
+    res1, resn = 1, len(sequence)
 
-    parser.add_argument("--nrep")
-    parser.add_argument("--eps")
+    kint, prolines = calculate_kint_for_sequence(
+        res1, resn, sequence, temp, pH
+    )
 
-    config = {}
-    opts = parser.parse_args()
-
-    # Compulsory arguments
-    if opts.base:
-        config['base'] = opts.base
-    else:
-        config['base'] = os.getcwd()
-    if opts.ass:
-        config['assignments'] = opts.ass
-    if opts.temp:
-        config['temperature'] = float(opts.temp)
-    if opts.pH:
-        config['pH'] = float(opts.pH)
-    if opts.pfact:
-        config['pfact'] = read_pfact(opts.pfact)
-    if opts.times:
-        config['times'] = read_time_points(opts.times)
-    if opts.seq:
-        config['sequence'] = read_seq(opts.seq)
-        config['res1'] = 1
-        config['resn'] = len(read_seq(opts.seq))
-
-    # Optional arguments
-    if opts.out:
-        config['output'] = opts.out
-    else:
-        config['output'] = None
-
-    if opts.nrep:
-        nrep = int(opts.nrep)
-    else:
-        nrep = 1
-
-    if opts.eps:
-        eps = float(opts.eps)
-    else:
-        eps = 0.
-
-    pfact = config['pfact']
-    assignments = read_assignments(config['assignments'])
-
-    assignment_set = set()
-    for ass in assignments:
-        for x in range(int(ass[1]), int(ass[2]) + 1):
-            assignment_set.add(x)
-
-    kint, prolines = calculate_kint_for_sequence(config['res1'],
-                                                 config['resn'],
-                                                 config['sequence'],
-                                                 config['temperature'],
-                                                 config['pH'])
-
-    outfiles = []
-    for i in range(1, nrep+1):
-        if nrep > 1:
-            outfile = config['output']+str(i)
-        else:
-            outfile = config['output']
-
-        dpred = calculate_dpred(pfact, config['times'], kint, assignments)
-        write_dpred(outfile, dpred, config['times'], eps)
-        outfiles.append(outfile+".Dpred")
+    outfiles: List[str] = []
+    for i in range(1, nrep + 1):
+        outfile = f"{out}{i}" if nrep > 1 else out
+        dpred = calculate_dpred(pfact, times, kint, assignments)
+        write_dpred(outfile, dpred, times, eps)
+        outfiles.append(f"{outfile}.Dpred")
 
     if nrep > 1:
-        write_combined_replicates(outfiles, out=config['output'])
+        write_combined_replicates(outfiles, out=out)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description="Predict D-uptake from protection factors and assignments."
+    )
+
+    parser.add_argument("--base", type=str, default=".")
+    parser.add_argument("--ass", required=True)
+    parser.add_argument("--pfact", required=True)
+    parser.add_argument("--times", required=True)
+    parser.add_argument("--temp", required=True, type=float)
+    parser.add_argument("--pH", required=True, type=float)
+    parser.add_argument("--seq", required=True)
+    parser.add_argument("--out", required=False, default="dpred")
+    parser.add_argument("--nrep", type=int, default=1)
+    parser.add_argument("--eps", type=float, default=0.0)
+
+    args = parser.parse_args()
+
+    run_pfact2dpred(
+        base=args.base,
+        ass_file=args.ass,
+        pfact_file=args.pfact,
+        times_file=args.times,
+        temp=args.temp,
+        pH=args.pH,
+        seq_file=args.seq,
+        out=args.out,
+        nrep=args.nrep,
+        eps=args.eps
+    )
