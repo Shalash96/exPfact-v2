@@ -1,133 +1,134 @@
 """
-Takes as input a cluster file from DnX and generates an assignment file (coverage map)
-and a .dexp file.
+DynamX Cluster File to exPfact Format Converter
+-----------------------------------------------
 
-*** Back-exchange correction is with respect to columns MaxUptake
-*** Different charge states are averaged together
+This script processes a DynamX cluster CSV file and generates:
+  - An assignment file (.list) representing peptide coverage
+  - A normalized uptake file (.dexp) compatible with exPfact
+
+Normalization options:
+  1. Theoretical maximum uptake (uses MaxUptake column x D2O %)
+  2. Fully deuterated sample as a reference (last timepoint per peptide)
+
+Author: Original by E. Paci group, upgraded by Mahmoud Shalash
 """
 
 import pandas as pd
 import numpy as np
 import sys
+import os
 
-if __name__ == '__main__':
-    
-    if len(sys.argv) > 1:
-        infile = sys.argv[1]
-    else:
-        print("Error\nUsage: process_DnXcluster.py <filename.csv>")
-        exit()
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: process_DnXcluster.py <filename.csv>")
+        sys.exit(1)
+
+    infile = sys.argv[1]
+    if not os.path.isfile(infile):
+        print(f"Error: file {infile} not found.")
+        sys.exit(1)
 
     alldata = pd.read_csv(infile)
-    print("Converting DynamX cluster %s file into exPfact input files\n" % infile)
+    print(f"Converting DynamX cluster '{infile}' into exPfact input files.\n")
 
+    # Mass correction
     alldata['Dt'] = alldata['Center'] * alldata['z'] - alldata['z']
-    alldata["Time"] = round(alldata["Exposure"], 2)
+    alldata['Time'] = round(alldata['Exposure'], 2)
     alldata['CorrDt'] = 0
 
-    states = list(set(alldata["State"]))
-    print("\nThe following experimental conditions have been identified:")
-    for i in range(len(states)):
-        print("  %d) %s" % (i+1, states[i]))
-    
-    times = np.sort(list(set(alldata['Exposure'])))
-    print("\nThe following labelling times have been identified:")
-    for i in range(len(times)):
-        print("  %d) %5.1f min" % (i+1, times[i]))
-        
-    print("\nExPfact needs deuterium uptake values to be normalized between 0 and 1.")
-    print("Two normalization methods are available:")
-    print("  1) Using the theoretical maximum uptake (column MaxUptake in the DynamX cluster file, multiplied by D2O percentage)")
-    print("  2) Using the fully deuterated sample (the longer exposure time is used as fully deuterated sample)")
-    print("Please select the method that you prefer [1/2]:")
-    norm_method = input()
+    # Identify states and timepoints
+    states = sorted(set(alldata['State']))
+    times = np.sort(alldata['Exposure'].unique())
+
+    print("Experimental conditions (States):")
+    for i, s in enumerate(states, 1):
+        print(f"  {i}) {s}")
+
+    print("\nLabeling times (minutes):")
+    for i, t in enumerate(times, 1):
+        print(f"  {i}) {t:5.1f}")
+
+    print("\nNormalization Method:")
+    print("  1) Theoretical max uptake (uses MaxUptake × D2O%)")
+    print("  2) Fully deuterated sample (uses final exposure time as max)")
+    norm_method = input("Select [1/2]: ").strip()
 
     if norm_method == "1":
-        print("\nPlease state the D2O percentage [0 - 100]:")
-        d2o_perc = int(input())
+        d2o_perc = float(input("Enter D2O percentage [0-100]: ").strip())
     elif norm_method == "2":
         back_exs = []
-        allpeptides = list(set(alldata["Sequence"]))
-        for peptide in allpeptides:
-            subdata = alldata[(alldata["Sequence"] == peptide) &\
-                              (alldata["Exposure"] == times[-1])].reset_index()
-            fddata = list(subdata["Dt"])
-            if len(fddata) > 1:
-                mhp = np.average(list(subdata["MHP"]))
-                maxu = np.average(list(subdata["MaxUptake"]))
-                fd = np.average(fddata)
-                back_ex = (fd - mhp) / maxu 
+        peptides = set(alldata['Sequence'])
+        final_time = times[-1]
+        for pep in peptides:
+            sub = alldata[(alldata["Sequence"] == pep) & (alldata["Exposure"] == final_time)]
+            if not sub.empty:
+                fd = np.average(sub["Dt"])
+                mhp = np.average(sub["MHP"])
+                maxu = np.average(sub["MaxUptake"])
+                back_ex = (fd - mhp) / maxu
                 back_exs.append(back_ex)
-        back_ex_perc = np.average(back_exs) * 100
-        print("\nAverage back-exchange plateau: %5.2f" % back_ex_perc)
-        print("calculated as ratio between maximally labelled sample and theoretical maximal uptake")
-        print("when not available, fully deuterated sample estimated using the average back exchange percentage")
+        back_ex_perc = np.mean(back_exs) * 100
+        print(f"\nAverage back-exchange plateau: {back_ex_perc:.2f}%")
     else:
-        print("\nNormalization method not valid")
-        exit()
-    print("\n")
+        print("Invalid normalization method selected.")
+        sys.exit(1)
 
-    for state in states:     
+    for state in states:
         data = alldata[alldata["State"] == state].reset_index()
-        
-        # Find coverage map - peptides and sequences
+
         peptides = []
         sequences = []
         for i in range(len(data)):
-            if (data['Start'][i], data['End'][i]) not in peptides:
-                peptides.append((data['Start'][i], data['End'][i]))
-                if data['Sequence'][i] not in sequences:
-                    sequences.append(data['Sequence'][i])
-        
-        print("State: %s" % state)
-        print("  Number of peptides: %d" % len(peptides))
-        
-        # Write assignment file
-        with open(infile.replace(".csv","_%s.list" % state), 'w') as f:
-            for i in range(len(peptides)):
-                f.write("%d %d %d %s\n" % (i+1, peptides[i][0], peptides[i][1], sequences[i]))
-        
-        times = np.sort(list(set(data['Time'])))
-        
+            pair = (data['Start'][i], data['End'][i])
+            if pair not in peptides:
+                peptides.append(pair)
+                sequences.append(data['Sequence'][i])
+
+        print(f"\nState: {state} — {len(peptides)} peptides")
+
+        # Assignment file
+        ass_path = infile.replace(".csv", f"_{state}.list")
+        with open(ass_path, 'w') as f:
+            for i, (start, end) in enumerate(peptides):
+                f.write(f"{i+1} {start} {end} {sequences[i]}\n")
+
+        times = np.sort(data['Time'].unique())
         dexp = np.zeros((len(peptides)+1, len(times)))
-        dexp[0] = times / 60
-        for pep in range(1, len(peptides)+1):
-            subdata = data[(data['Start'] == peptides[pep-1][0]) &\
-                           (data['End'] == peptides[pep-1][1])]        
-            control = np.average(subdata[subdata['Time'] == times[0]]['Dt'])
-            
+        dexp[0] = times / 60  # Convert minutes to hours
+
+        for i, (start, end) in enumerate(peptides, 1):
+            sub = data[(data['Start'] == start) & (data['End'] == end)]
+            control = sub[sub['Time'] == times[0]]['Dt'].mean()
+
             if norm_method == "1":
-                maxUptake = d2o_perc/100 * list(set(subdata['MaxUptake']))[0]
-            elif norm_method == "2":
-                fd_control = subdata[subdata['Time'] == times[-1]]['Dt']
-                if len(fd_control) > 0:
-                    maxUptake = np.average(fd_control)
-                else:
-                    maxUptake = back_ex_perc/100 * list(set(subdata['MaxUptake']))[0]
+                maxUptake = d2o_perc / 100 * sub['MaxUptake'].iloc[0]
             else:
-                print("Normalization method not valid!")
-                exit()
-    
-            for j in range(len(times)):
-                data_t = subdata[subdata['Time'] == times[j]]
-                if norm_method == "1":
-                    Dt = (np.average(data_t['Dt']) - control) / maxUptake
-                elif norm_method == "2":
-                    Dt = (data_t['Dt'] - control) / (maxUptake - control)
-                if len(Dt) > 0:
-                    uptake = np.average(Dt)
+                fd = sub[sub['Time'] == times[-1]]['Dt']
+                if not fd.empty:
+                    maxUptake = fd.mean()
                 else:
-                    print("  Note: missing time point %5.1f for peptide %s in state %s" % (times[j], sequences[pep-1], state))
-                    uptake = "NaN"
-                
-                if uptake < 0:
-                    dexp[pep][j] = 0
-                elif uptake > 1:
-                    dexp[pep][j] = 1
+                    maxUptake = back_ex_perc / 100 * sub['MaxUptake'].iloc[0]
+
+            for j, t in enumerate(times):
+                data_t = sub[sub['Time'] == t]
+                if not data_t.empty:
+                    if norm_method == "1":
+                        dt = (data_t['Dt'].mean() - control) / maxUptake
+                    else:
+                        dt = (data_t['Dt'] - control) / (maxUptake - control)
+                        dt = dt.mean()
                 else:
-                    dexp[pep][j] = uptake
-                    
-        if norm_method == "2":
-            np.savetxt(infile.replace(".csv", "_%s.dexp" % state), np.transpose(dexp)[:-1], fmt = "%5.5f")
-        else:
-            np.savetxt(infile.replace(".csv", "_%s.dexp" % state), np.transpose(dexp), fmt = "%5.5f")
+                    print(f"  Missing time {t} min for peptide {sequences[i-1]} in {state}")
+                    dt = np.nan
+
+                dt = min(max(dt, 0), 1) if not np.isnan(dt) else 0
+                dexp[i][j] = dt
+
+        dexp_out = infile.replace(".csv", f"_{state}.dexp")
+        np.savetxt(dexp_out, dexp.T[:-1] if norm_method == "2" else dexp.T, fmt="%5.5f")
+
+        print(f"  ➤ Saved: {ass_path}, {dexp_out}")
+
+
+if __name__ == '__main__':
+    main()
