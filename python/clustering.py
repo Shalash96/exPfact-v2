@@ -67,7 +67,7 @@ def find_covered_regions_between_gaps(assignments: np.ndarray) -> List[str]:
 
 
 
-def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r") -> None:
+def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r", sp_path: str = "all.sp") -> None:
     """
     Run Mclust clustering via Rscript for each contiguous covered region.
 
@@ -77,10 +77,12 @@ def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r") ->
         List of peptides ranges in format 'start-end'.
     r_script : str
         Path to the R clustering script.
+    sp_path : str
+        Path to all.sp file
     """
     for region in regions:
         start, end = region.split('-')
-        command = ["Rscript", r_script, start, end]
+        command = ["Rscript", r_script, start, end, sp_path]
         try:
             subprocess.run(command, check=True)
             print(f"Clustered region: {start}-{end}")
@@ -91,11 +93,12 @@ def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r") ->
 def main():
     parser = argparse.ArgumentParser(description="Run Mclust clustering on contiguous regions between gaps.")
     parser.add_argument("--ass", required=True, help="Path to peptide assignment file (.list)")
+    parser.add_argument("--all_sp", default="all.sp", help="Path to sp file (default: all.sp)")
     args = parser.parse_args()
 
     assignments = read_assignments(args.ass)
     regions = find_covered_regions_between_gaps(assignments)
-    run_mclust_on_regions(regions)
+    run_mclust_on_regions(regions, sp_path=args.all_sp)
 
 
 if __name__ == "__main__":
