@@ -80,8 +80,8 @@ Follow these steps to set up the ExPfact suite:
 
 1.  **Clone the Repository (if applicable):**
     ```bash
-    git clone <repository_url>
-    cd expfact-suite # Or your repository name
+    git clone https://github.com/Shalash96/exPfact-v2.git
+    cd exPfact-v2 # Or your repository name
     ```
 
 2.  **Create and Activate the Conda Environment:**
@@ -100,9 +100,8 @@ Follow these steps to set up the ExPfact suite:
 3.  **Compile Cython Modules:**
     The core `calc_dpred` module is written in Cython for performance. Navigate to the directory containing the Cython source files which is `python/` and compile:
     ```bash
-    cd <path_to_cython_source_directory> # e.g., cd scripts/
+    cd python/
     python setup_calc_dpred.py build_ext --inplace
-    cd .. # Return to project root
     ```
     *(Ensure `setup_calc_dpred.py` correctly points to `calc_dpred.pyx`)*
 
@@ -129,7 +128,7 @@ Follow these steps to set up the ExPfact suite:
     ```
 
 2.  **Launch the Graphical User Interface (GUI):**
-    Navigate to the directory containing `expfact_gui.py` (or adjust path) and run:
+    Navigate to the directory containing `expfact_gui.py` which is `guiApp/` (or adjust path) and run:
     ```bash
     python expfact_gui.py
     ```
