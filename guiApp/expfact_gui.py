@@ -3,7 +3,8 @@ import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QLabel, QLineEdit, QPushButton, QFileDialog, QSpinBox,
-    QDoubleSpinBox, QCheckBox, QComboBox, QTextEdit, QMessageBox, QStatusBar
+    QDoubleSpinBox, QCheckBox, QComboBox, QTextEdit, QMessageBox, QStatusBar,
+    QGroupBox, QRadioButton
 )
 from PyQt6.QtCore import QProcess, Qt
 from PyQt6.QtGui import QPixmap
@@ -71,7 +72,7 @@ class ExPfactGUI(QMainWindow):
         if dir_name:
             line_edit.setText(dir_name)
 
-    def _run_script(self, script_name, args_list, script_is_python=True):
+    def _run_script(self, script_name, args_list):
         if self.process and self.process.state() == QProcess.ProcessState.Running:
             QMessageBox.warning(self, "Process Busy", "Another process is already running.")
             return
@@ -81,33 +82,20 @@ class ExPfactGUI(QMainWindow):
         self.process.readyReadStandardOutput.connect(self._handle_stdout)
         self.process.finished.connect(self._process_finished)
 
-        executable = "python"
-        full_script_path_or_command = get_script_path(script_name)
+        full_script_path = get_script_path(script_name)
 
-        if script_is_python and not os.path.exists(full_script_path_or_command):
-            self._log_message(f"ERROR: Python script not found: {full_script_path_or_command}", is_error=True)
+        if not os.path.exists(full_script_path):
+            self._log_message(f"ERROR: Python script not found: {full_script_path}", is_error=True)
             self.status_bar.showMessage(f"Error: Script not found: {script_name}")
             self.process = None
             return
-        
-        command_display_parts = []
-        effective_args = []
 
-        if script_is_python:
-            executable = "python"
-            command_display_parts.append(executable)
-            command_display_parts.append(full_script_path_or_command)
-            command_display_parts.extend(args_list)
-            effective_args = [full_script_path_or_command] + args_list
-        else: 
-            executable = script_name # e.g., "Rscript"
-            command_display_parts.append(executable)
-            command_display_parts.extend(args_list)
-            effective_args = args_list
+        executable = "python"
+        effective_args = [full_script_path] + args_list
+        command_display = f"{executable} {full_script_path} {' '.join(args_list)}"
 
-
-        self._log_message(f"Running: {' '.join(command_display_parts)}")
-        self.status_bar.showMessage(f"Running {script_name if script_is_python else executable}...")
+        self._log_message(f"Running: {command_display}")
+        self.status_bar.showMessage(f"Running {script_name}...")
 
         self._toggle_run_buttons(enable=False)
         self.process.start(executable, effective_args)
@@ -116,24 +104,15 @@ class ExPfactGUI(QMainWindow):
     def _toggle_run_buttons(self, enable=True):
         for i in range(self.tab_widget.count()):
             tab_content = self.tab_widget.widget(i)
-            sub_tabs = tab_content.findChildren(QTabWidget)
-            if sub_tabs:
-                for sub_tab_widget in sub_tabs:
-                    for j in range(sub_tab_widget.count()):
-                        sub_tab_content = sub_tab_widget.widget(j)
-                        buttons = sub_tab_content.findChildren(QPushButton)
-                        for button in buttons:
-                            if "run_" in button.objectName().lower() or \
-                               "calculate" in button.text().lower() or \
-                               "process" in button.text().lower():
-                                button.setEnabled(enable)
-            else:
-                buttons = tab_content.findChildren(QPushButton)
-                for button in buttons:
-                    if "run_" in button.objectName().lower() or \
-                       "calculate" in button.text().lower() or \
-                       "process" in button.text().lower():
-                        button.setEnabled(enable)
+            buttons = tab_content.findChildren(QPushButton)
+            for button in buttons:
+                button_text_lower = button.text().lower()
+                if "run" in button_text_lower or \
+                   "calculate" in button_text_lower or \
+                   "process" in button_text_lower or \
+                   "predict" in button_text_lower or \
+                   "generate" in button_text_lower:
+                    button.setEnabled(enable)
 
     def _handle_stdout(self):
         data = self.process.readAllStandardOutput().data().decode().strip()
@@ -249,7 +228,6 @@ class ExPfactGUI(QMainWindow):
 
         layout.addLayout(form_layout)
         run_button = QPushButton("Run ExPfact Fitting")
-        run_button.setObjectName("run_button_expfact")
         run_button.clicked.connect(self._run_expfact_fitting)
         layout.addWidget(run_button)
         layout.addStretch()
@@ -324,7 +302,6 @@ class ExPfactGUI(QMainWindow):
 
         layout.addLayout(form_layout)
         run_button = QPushButton("Calculate Pfactors from MD")
-        run_button.setObjectName("run_button_md2pfact")
         run_button.clicked.connect(self._run_md2pfact)
         layout.addWidget(run_button)
 
@@ -429,7 +406,6 @@ class ExPfactGUI(QMainWindow):
 
         layout.addLayout(form_layout)
         run_button = QPushButton("Predict D-uptake")
-        run_button.setObjectName("run_button_pfact2dpred")
         run_button.clicked.connect(self._run_pfact2dpred)
         layout.addWidget(run_button)
         layout.addStretch()
@@ -475,7 +451,6 @@ class ExPfactGUI(QMainWindow):
 
         hisotope_layout.addLayout(hisotope_form)
         run_hisotope_button = QPushButton("Calculate Fully Protonated Envelope")
-        run_hisotope_button.setObjectName("run_button_hisotope")
         run_hisotope_button.clicked.connect(self._run_hisotope)
         hisotope_layout.addWidget(run_hisotope_button)
         main_isotopes_layout.addWidget(hisotope_group)
@@ -553,7 +528,6 @@ class ExPfactGUI(QMainWindow):
 
         isenv_layout.addLayout(isenv_form)
         run_isenv_button = QPushButton("Calculate/Compare Envelopes")
-        run_isenv_button.setObjectName("run_button_isenv")
         run_isenv_button.clicked.connect(self._run_isotopic_envelope)
         isenv_layout.addWidget(run_isenv_button)
 
@@ -633,7 +607,6 @@ class ExPfactGUI(QMainWindow):
 
         dnyx_layout.addLayout(dnyx_form)
         run_dnyx_button = QPushButton("Process DynamX File")
-        run_dnyx_button.setObjectName("run_button_dnyx")
         run_dnyx_button.clicked.connect(self._run_process_dnyx)
         dnyx_layout.addWidget(run_dnyx_button)
         dnyx_layout.addStretch()
@@ -675,7 +648,6 @@ class ExPfactGUI(QMainWindow):
 
         cv_layout.addLayout(cv_form)
         run_cv_button = QPushButton("Run Cross Validation")
-        run_cv_button.setObjectName("run_button_cv")
         run_cv_button.clicked.connect(self._run_cross_validation)
         cv_layout.addWidget(run_cv_button)
         cv_layout.addStretch()
@@ -695,7 +667,6 @@ class ExPfactGUI(QMainWindow):
 
         desc_stats_layout.addLayout(desc_stats_form)
         run_desc_stats_button = QPushButton("Calculate Descriptive Statistics")
-        run_desc_stats_button.setObjectName("run_button_desc_stats")
         run_desc_stats_button.clicked.connect(self._run_descriptive_stats)
         desc_stats_layout.addWidget(run_desc_stats_button)
         desc_stats_layout.addStretch()
@@ -716,7 +687,6 @@ class ExPfactGUI(QMainWindow):
         hb_cluster_ass.addWidget(self.cluster_ass_browse)
         cluster_form.addRow("Assignments File (--ass):", hb_cluster_ass)
 
-        # Using self.cluster_all_sp_edit to match clustering.py --all_sp argument
         self.cluster_all_sp_edit = QLineEdit() 
         self.cluster_all_sp_browse = QPushButton("Browse...")
         self.cluster_all_sp_browse.clicked.connect(lambda: self._browse_file(
@@ -725,16 +695,72 @@ class ExPfactGUI(QMainWindow):
         hb_cluster_all_sp = QHBoxLayout()
         hb_cluster_all_sp.addWidget(self.cluster_all_sp_edit)
         hb_cluster_all_sp.addWidget(self.cluster_all_sp_browse)
-        # Label reflects the argument name used in clustering.py
         cluster_form.addRow("all.sp Data File (--all_sp):", hb_cluster_all_sp) 
         
         cluster_layout.addLayout(cluster_form)
         run_cluster_button = QPushButton("Run Clustering (requires R & mclust)")
-        run_cluster_button.setObjectName("run_button_clustering")
         run_cluster_button.clicked.connect(self._run_clustering)
         cluster_layout.addWidget(run_cluster_button)
         cluster_layout.addStretch()
         util_tab_widget.addTab(cluster_tab, "Clustering")
+
+        # --- Sub-Tab 5: Generate Dataset ---
+        gen_tab = QWidget()
+        gen_layout = QVBoxLayout(gen_tab)
+        gen_form_layout = QFormLayout()
+
+        self.gen_length_input = QSpinBox()
+        self.gen_length_input.setRange(10, 10000)
+        self.gen_length_input.setValue(100)
+        gen_form_layout.addRow("Protein Sequence Length:", self.gen_length_input)
+
+        self.gen_seed_input = QLineEdit()
+        self.gen_seed_input.setPlaceholderText("Leave blank for random seed")
+        gen_form_layout.addRow("Random Seed (optional):", self.gen_seed_input)
+
+        self.gen_radio_group = QGroupBox("Peptide Generation Mode")
+        radio_layout = QHBoxLayout()
+        self.gen_radio_random = QRadioButton("Random Peptides")
+        self.gen_radio_dipeptide = QRadioButton("Overlapping Dipeptides")
+        self.gen_radio_both = QRadioButton("Both")
+        self.gen_radio_random.setChecked(True)
+        radio_layout.addWidget(self.gen_radio_random)
+        radio_layout.addWidget(self.gen_radio_dipeptide)
+        radio_layout.addWidget(self.gen_radio_both)
+        self.gen_radio_group.setLayout(radio_layout)
+        gen_form_layout.addRow(self.gen_radio_group)
+
+        self.random_pep_options_widget = QWidget()
+        random_pep_layout = QFormLayout(self.random_pep_options_widget)
+        random_pep_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.gen_min_len_input = QSpinBox()
+        self.gen_min_len_input.setRange(2, 100)
+        self.gen_min_len_input.setValue(5)
+        random_pep_layout.addRow("Min Peptide Length:", self.gen_min_len_input)
+
+        self.gen_max_len_input = QSpinBox()
+        self.gen_max_len_input.setRange(2, 100)
+        self.gen_max_len_input.setValue(15)
+        random_pep_layout.addRow("Max Peptide Length:", self.gen_max_len_input)
+
+        self.gen_num_peptides_input = QSpinBox()
+        self.gen_num_peptides_input.setRange(1, 1000)
+        self.gen_num_peptides_input.setValue(100)
+        random_pep_layout.addRow("Number of Peptides:", self.gen_num_peptides_input)
+
+        gen_form_layout.addRow(self.random_pep_options_widget)
+
+        self.gen_radio_random.toggled.connect(self.random_pep_options_widget.setVisible)
+        self.gen_radio_both.toggled.connect(self.random_pep_options_widget.setVisible)
+        self.gen_radio_dipeptide.toggled.connect(lambda checked: self.random_pep_options_widget.setHidden(checked))
+
+        gen_layout.addLayout(gen_form_layout)
+        generate_btn = QPushButton("Generate Dataset")
+        generate_btn.clicked.connect(self._run_generate_dataset)
+        gen_layout.addWidget(generate_btn)
+        gen_layout.addStretch()
+        util_tab_widget.addTab(gen_tab, "Generate")
 
         self.tab_widget.addTab(utilities_main_tab, "Utilities")
 
@@ -790,15 +816,41 @@ class ExPfactGUI(QMainWindow):
             if not os.path.isfile(all_sp_path):
                 QMessageBox.warning(self, "Input Error",
                                     f"The specified 'all.sp' file was not found: {all_sp_path}\n"
-                                    "Clustering will proceed assuming 'all.sp' is in the 'results' directory or not needed if path is handled differently by the R script.")
-            args.extend(["--all_sp", all_sp_path]) # Use --all_sp
+                                    "Clustering will proceed assuming 'all.sp' is in the 'results' directory.")
+            args.extend(["--all_sp", all_sp_path])
         
         log_msg = "Ensure R and mclust are correctly set up. "
         if not (hasattr(self, 'cluster_all_sp_edit') and self.cluster_all_sp_edit.text()):
-            log_msg += "Since 'all.sp' path is not specified, 'clustering.py' will expect a file named 'all.sp' in the 'results' directory if needed by its R script logic."
+            log_msg += "Since 'all.sp' path is not specified, 'clustering.py' will expect a file named 'all.sp' in the 'results' directory."
         
         self._log_message(log_msg)
         self._run_script("clustering.py", args)
+
+    def _run_generate_dataset(self):
+        args = []
+        args.extend(["--length", str(self.gen_length_input.value())])
+        
+        if self.gen_seed_input.text():
+            try:
+                seed = int(self.gen_seed_input.text())
+                args.extend(["--seed", str(seed)])
+            except ValueError:
+                QMessageBox.warning(self, "Input Error", "Random seed must be a valid integer.")
+                return
+
+        if self.gen_radio_random.isChecked(): mode = 'random'
+        elif self.gen_radio_dipeptide.isChecked(): mode = 'dipeptide'
+        else: mode = 'both'
+        args.extend(["--mode", mode])
+
+        if mode in ['random', 'both']:
+            args.extend(["--min_len", str(self.gen_min_len_input.value())])
+            args.extend(["--max_len", str(self.gen_max_len_input.value())])
+            args.extend(["--num_pep", str(self.gen_num_peptides_input.value())])
+            
+        self._log_message("Starting dataset generation...")
+        self._run_script("generate_dataset.py", args)
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
@@ -809,7 +861,7 @@ if __name__ == '__main__':
             os.makedirs(SCRIPT_DIR)
             print(f"Created directory '{SCRIPT_DIR}'. Place your ExPfact Python scripts there.")
         except OSError as e:
-            print(f"Critical Error: Could not create script directory {SCRIPT_DIR}: {e}. Exiting.")
+            QMessageBox.critical(None, "Directory Error", f"Could not create script directory {SCRIPT_DIR}: {e}")
             sys.exit(1)
     else:
         print(f"Using Python scripts from '{SCRIPT_DIR}'.")
