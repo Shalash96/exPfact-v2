@@ -13,6 +13,7 @@ import subprocess
 import numpy as np
 from read import read_assignments
 from typing import List
+import os
 
 
 def find_covered_regions_between_gaps(assignments: np.ndarray) -> List[str]:
@@ -67,7 +68,7 @@ def find_covered_regions_between_gaps(assignments: np.ndarray) -> List[str]:
 
 
 
-def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r", sp_path: str = "all.sp") -> None:
+def run_mclust_on_regions(regions: list[str], sp_path: str = "all.sp") -> None:
     """
     Run Mclust clustering via Rscript for each contiguous covered region.
 
@@ -80,9 +81,12 @@ def run_mclust_on_regions(regions: list[str], r_script: str = "../R/multi.r", sp
     sp_path : str
         Path to all.sp file
     """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    r_script_path = os.path.join(script_dir, '..', 'R', 'multi.r')
+    r_script_path = os.path.normpath(r_script_path)
     for region in regions:
         start, end = region.split('-')
-        command = ["Rscript", r_script, start, end, sp_path]
+        command = ["Rscript", r_script_path, start, end, sp_path]
         try:
             subprocess.run(command, check=True)
             print(f"Clustered region: {start}-{end}")
